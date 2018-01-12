@@ -3,41 +3,31 @@ XDOTOOL=$(which xdotool)
 WMCTRL=$(which wmctrl)
 GREP=$(which grep)
 AWK=$(which awk)
-
-containsElement () {
-  local e match="$1"
-  shift
-  for e; do [[ "$e" == "$match" ]] && return 0; done
-  return 1
-}
+PIDOF=$(which pidof)
+SED=$(which sed)
 
 DID=$(${WMCTRL} -d | ${GREP} -E "^[0-9]  \*" | ${AWK} '{print $1}')
 APD=($(${WMCTRL} -l | ${GREP} -iE "${1}" | ${AWK} '{print $2}'))
 
+# Thanks to http://hacking.elboulangero.com/2015/12/06/bash-logging.html for this
+log()     { [[ -t 1 ]] &&     echo "$@" || logger -t $(basename $0) "$@"; }
+log_err() { [[ -t 2 ]] && >&2 echo "$@" || logger -t $(basename $0) -p user.err "$@"; }
 
+#TODO make the logger commands only log if a certain flag is set.
+log "switchto launched with ${1} and ${3}"
 
-# APD could output multiple lines if there are multiple instances loaded (on different or the same desktop), so we need to know if there is an instance on THIS
-# desktop
-if containsElement "${DID}" "${APD[@]}"; then
-  # we will need this whatever happens
-  # we COULD just ${WMCTRL} -a ${1} here, but that could reference the instance on another desktop, and it seems likely, that if
-  # we are activing a program, we want the instance on THIS desktop, so lets find a reference to it, and activate that.
-  WID=$(${WMCTRL} -l | ${GREP} -E "[0-9]x[0-9a-z]{8}\s\s${DID}" | ${GREP} -iE "${1}" | ${AWK} '{print $1}')
+PIDS=$(${PIDOF} ${1} | ${SED} 's/\s/|/g')
+
+log "PIDS is $PIDS"
+WID=$(${WMCTRL} -lp | ${GREP} -E "[0-9]x[0-9a-z]{8}\s\s${DID}" | ${GREP} -iE "${1}" | ${GREP} -E " ${PIDS} " | ${AWK} '{print $1}')
+log "WID is ${WID}"
+if [[ ! -z $WID ]]; then 
+  log "Got the WID of a suitable candidate, switching to that"
   
-  # uncomment the below you want it to toggle maximized / restored when you hit the hotkey and the window is already active
-
-  #ACTWINTITLE=$(${XDOTOOL} getactivewindow getwindowname)
-  #ISACTIVEWINDOW=$(echo ${ACTWINTITLE} | ${GREP} -iE "${1}")
-
-  #if [[ ! -z "${ISACTIVEWINDOW}" ]]; then
-  #  ${WMCTRL} -i -r ${WID} -b toggle,maximized_vert,maximized_horiz
-  #fi
-
-  # END ncomment the above you want it to toggle maximized / restored when you hit the hotkey and the window is already active
-
   # switch to the window we found
   ${WMCTRL} -i -a ${WID}
  else
    # the application is running, but not on this desktop, so launch another
+   log "The application is running but on a different desktop, so run it on this one"
    ${3} &
 fi
